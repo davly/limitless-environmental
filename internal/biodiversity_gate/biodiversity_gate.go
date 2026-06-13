@@ -18,6 +18,8 @@ package biodiversity_gate
 
 import (
 	"errors"
+
+	"github.com/davly/limitless-environmental/internal/calibration"
 )
 
 // StatutoryMinimumGainPercent is the Environment Act 2021 Schedule 14
@@ -127,4 +129,59 @@ func Classify(ctx BNGContext) (BNGOutcome, float64, error) {
 // percentGain returns (post - pre) / pre * 100. pre must be > 0.
 func percentGain(post, pre float64) float64 {
 	return (post - pre) / pre * 100.0
+}
+
+// BNGUncertaintyResult extends the plain gate outcome with a calibrated
+// uncertainty band on the gain figure, derived from a Brier/Murphy/ROC
+// probabilistic verification of prior threshold-exceedance forecasts.
+//
+// The band answers: "given the historical calibration record for this
+// methodology, how far should we trust the stated gain percentage?"
+//
+// INFORMATIONAL ONLY — not a substitute for a licenced environmental assessor
+// or Natural England / LPA statutory sign-off (R153).
+type BNGUncertaintyResult struct {
+	// Outcome is the standard 4-way gate result.
+	Outcome BNGOutcome
+	// GainPct is the raw calculated BNG gain percentage.
+	GainPct float64
+	// UncertaintyBand wraps GainPct in a calibrated ±HalfWidth envelope
+	// with a TrustLevel indicating how well-calibrated the prior record is.
+	UncertaintyBand calibration.GainUncertaintyBand
+}
+
+// ClassifyWithUncertainty is the uncertainty-aware variant of Classify.
+//
+// In addition to the standard gate decision it wraps the BNG gain percentage
+// in a Brier/Murphy calibrated uncertainty envelope so the caller can see
+// how far to trust the stated figure given the provided calibration history.
+//
+// priorProbabilities and priorObservations are the historical record of
+// probabilistic "will this site exceed the +10% threshold?" forecasts and
+// their observed outcomes (1 = threshold was met, 0 = not).  These must have
+// equal length; pass nil/empty slices when no history is available.
+//
+// minHistory controls the minimum number of prior pairs before the band is
+// computed; below this limit HalfWidth=0 and TrustLevel=LOW.
+func ClassifyWithUncertainty(
+	ctx BNGContext,
+	priorProbabilities []float64,
+	priorObservations []float64,
+	minHistory int,
+) (BNGUncertaintyResult, error) {
+	outcome, gainPct, err := Classify(ctx)
+	if err != nil {
+		return BNGUncertaintyResult{}, err
+	}
+
+	band, err := calibration.CalibrateBNGGain(gainPct, priorProbabilities, priorObservations, minHistory)
+	if err != nil {
+		return BNGUncertaintyResult{}, err
+	}
+
+	return BNGUncertaintyResult{
+		Outcome:         outcome,
+		GainPct:         gainPct,
+		UncertaintyBand: band,
+	}, nil
 }

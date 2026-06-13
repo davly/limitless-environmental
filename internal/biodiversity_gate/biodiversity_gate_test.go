@@ -158,3 +158,61 @@ func TestBNGOutcome_ExactStringValues(t *testing.T) {
 		t.Fatal("BNGOutcome string-value drift")
 	}
 }
+
+// TestClassifyWithUncertainty_WellCalibrated — calibration wire-up exercises
+// the Brier/Murphy uncertainty band on the BNG gain figure.
+func TestClassifyWithUncertainty_WellCalibrated(t *testing.T) {
+	ctx := BNGContext{
+		SiteReference:        "23/04567/FUL",
+		PreDevelopmentUnits:  100.0,
+		PostDevelopmentUnits: 115.0,
+	}
+	// 30 well-calibrated threshold-exceedance forecast/observation pairs.
+	probs := make([]float64, 30)
+	obs := make([]float64, 30)
+	for i := range probs {
+		probs[i] = 0.9
+		obs[i] = 1.0
+	}
+	result, err := ClassifyWithUncertainty(ctx, probs, obs, 10)
+	if err != nil {
+		t.Fatalf("ClassifyWithUncertainty: %v", err)
+	}
+	if result.Outcome != BNGMeetsThreshold {
+		t.Fatalf("outcome: got %s, want BNG_MEETS_THRESHOLD", result.Outcome)
+	}
+	if math.Abs(result.GainPct-15.0) > 0.0001 {
+		t.Fatalf("GainPct: got %v, want 15.0", result.GainPct)
+	}
+	if result.UncertaintyBand.GainPct != result.GainPct {
+		t.Fatalf("UncertaintyBand.GainPct should match GainPct")
+	}
+}
+
+// TestClassifyWithUncertainty_InsufficientHistory — too few prior pairs;
+// trust stays LOW and HalfWidth is zero.
+func TestClassifyWithUncertainty_InsufficientHistory(t *testing.T) {
+	ctx := BNGContext{
+		SiteReference:        "23/04567/FUL",
+		PreDevelopmentUnits:  100.0,
+		PostDevelopmentUnits: 112.0,
+	}
+	result, err := ClassifyWithUncertainty(ctx, nil, nil, 10)
+	if err != nil {
+		t.Fatalf("ClassifyWithUncertainty: %v", err)
+	}
+	if result.Outcome != BNGMeetsThreshold {
+		t.Fatalf("outcome: got %s, want BNG_MEETS_THRESHOLD", result.Outcome)
+	}
+	if result.UncertaintyBand.HalfWidth != 0.0 {
+		t.Fatalf("no history: want HalfWidth=0, got %v", result.UncertaintyBand.HalfWidth)
+	}
+}
+
+// TestClassifyWithUncertainty_InputValidation — gate input errors propagate.
+func TestClassifyWithUncertainty_InputValidation(t *testing.T) {
+	_, err := ClassifyWithUncertainty(BNGContext{}, nil, nil, 0)
+	if err != ErrEmptySiteReference {
+		t.Fatalf("validation: want ErrEmptySiteReference, got %v", err)
+	}
+}

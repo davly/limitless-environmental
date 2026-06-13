@@ -7,10 +7,10 @@ import (
 	"testing"
 )
 
-// TestExpectedPackages_Count — exactly 7 canonical packages.
+// TestExpectedPackages_Count — exactly 8 canonical packages.
 func TestExpectedPackages_Count(t *testing.T) {
-	if got := len(ExpectedPackages()); got != 7 {
-		t.Fatalf("ExpectedPackages count: got %d, want 7", got)
+	if got := len(ExpectedPackages()); got != 8 {
+		t.Fatalf("ExpectedPackages count: got %d, want 8", got)
 	}
 }
 

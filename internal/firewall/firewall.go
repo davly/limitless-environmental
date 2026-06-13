@@ -16,14 +16,17 @@ import (
 )
 
 // ExpectedPackages returns the canonical list of internal/ packages
-// limitless-environmental ships as of 2026-05-28 I52 scaffold.
+// limitless-environmental ships as of 2026-05-28 I52 scaffold +
+// calibration-uncertainty x-poll (2026-06-13).
 //
-// 7 packages: 5 cohort (firewall + honest + legal + manifest +
-// mirrormark) + 2 domain (permit_gate + biodiversity_gate). Leaner
-// 5-pack cohort + 2 domain — per I52 directive Phase-1 minimal shape.
+// 8 packages: 5 cohort (firewall + honest + legal + manifest +
+// mirrormark) + 3 domain (permit_gate + biodiversity_gate +
+// calibration). calibration added: Brier/Murphy/ROC probabilistic
+// forecast verification for the BNG gain estimate.
 func ExpectedPackages() []string {
 	return []string{
 		"biodiversity_gate",
+		"calibration",
 		"firewall",
 		"honest",
 		"legal",
