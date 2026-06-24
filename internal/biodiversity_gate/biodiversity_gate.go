@@ -18,6 +18,7 @@ package biodiversity_gate
 
 import (
 	"errors"
+	"math"
 )
 
 // StatutoryMinimumGainPercent is the Environment Act 2021 Schedule 14
@@ -85,6 +86,13 @@ var ErrZeroPreUnits = errors.New("biodiversity_gate: PreDevelopmentUnits must be
 // ErrNegativeUnits — no field may be negative.
 var ErrNegativeUnits = errors.New("biodiversity_gate: biodiversity-units fields must be >= 0")
 
+// ErrNonFiniteUnits — no biodiversity-units field may be NaN or ±Inf.
+// Non-finite values defeat every threshold comparison (NaN comparisons
+// are always false), so without this guard malformed input would fall
+// through to the only non-escaping outcome (BNG_MEETS_THRESHOLD) and
+// silently bypass R153 planning-authority / Natural England review.
+var ErrNonFiniteUnits = errors.New("biodiversity_gate: biodiversity-units fields must be finite (no NaN/Inf)")
+
 // Classify returns the canonical BNGOutcome.
 //
 //   - post < pre AND no credits: BNG_NET_LOSS
@@ -94,6 +102,15 @@ var ErrNegativeUnits = errors.New("biodiversity_gate: biodiversity-units fields 
 func Classify(ctx BNGContext) (BNGOutcome, float64, error) {
 	if ctx.SiteReference == "" {
 		return "", 0, ErrEmptySiteReference
+	}
+	// Fail closed on non-finite input before any numeric comparison: NaN
+	// and ±Inf defeat the `< 0`/`== 0`/threshold guards below and would
+	// otherwise fall through to BNG_MEETS_THRESHOLD (the only outcome that
+	// does NOT route to R153 regulatory review).
+	for _, x := range [...]float64{ctx.PreDevelopmentUnits, ctx.PostDevelopmentUnits, ctx.StatutoryCreditsPurchased} {
+		if math.IsNaN(x) || math.IsInf(x, 0) {
+			return "", 0, ErrNonFiniteUnits
+		}
 	}
 	if ctx.PreDevelopmentUnits < 0 || ctx.PostDevelopmentUnits < 0 || ctx.StatutoryCreditsPurchased < 0 {
 		return "", 0, ErrNegativeUnits

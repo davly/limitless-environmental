@@ -149,6 +149,47 @@ func TestClassify_NegativeUnits_Error(t *testing.T) {
 	}
 }
 
+// TestClassify_NonFiniteUnits_Error — NaN/+Inf/-Inf on any biodiversity-
+// units field must fail closed with ErrNonFiniteUnits, never silently
+// returning the only non-escaping outcome (BNG_MEETS_THRESHOLD).
+//
+// Discrimination: each case fails (Classify returns BNGMeetsThreshold with
+// nil error) if the finite-check guard in Classify is reverted — NaN/+Inf
+// comparisons against the existing `< 0`/`== 0`/threshold guards are all
+// false, so control would fall through to BNGMeetsThreshold.
+func TestClassify_NonFiniteUnits_Error(t *testing.T) {
+	nan := math.NaN()
+	posInf := math.Inf(1)
+	negInf := math.Inf(-1)
+
+	cases := []struct {
+		name string
+		ctx  BNGContext
+	}{
+		{"pre=NaN", BNGContext{SiteReference: "23/04567/FUL", PreDevelopmentUnits: nan, PostDevelopmentUnits: 100.0}},
+		{"pre=+Inf", BNGContext{SiteReference: "23/04567/FUL", PreDevelopmentUnits: posInf, PostDevelopmentUnits: 100.0}},
+		{"pre=-Inf", BNGContext{SiteReference: "23/04567/FUL", PreDevelopmentUnits: negInf, PostDevelopmentUnits: 100.0}},
+		{"post=NaN", BNGContext{SiteReference: "23/04567/FUL", PreDevelopmentUnits: 100.0, PostDevelopmentUnits: nan}},
+		{"post=+Inf", BNGContext{SiteReference: "23/04567/FUL", PreDevelopmentUnits: 100.0, PostDevelopmentUnits: posInf}},
+		{"post=-Inf", BNGContext{SiteReference: "23/04567/FUL", PreDevelopmentUnits: 100.0, PostDevelopmentUnits: negInf}},
+		{"credits=NaN", BNGContext{SiteReference: "23/04567/FUL", PreDevelopmentUnits: 100.0, PostDevelopmentUnits: 110.0, StatutoryCreditsPurchased: nan}},
+		{"credits=+Inf", BNGContext{SiteReference: "23/04567/FUL", PreDevelopmentUnits: 100.0, PostDevelopmentUnits: 110.0, StatutoryCreditsPurchased: posInf}},
+		{"credits=-Inf", BNGContext{SiteReference: "23/04567/FUL", PreDevelopmentUnits: 100.0, PostDevelopmentUnits: 110.0, StatutoryCreditsPurchased: negInf}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out, gain, err := Classify(tc.ctx)
+			if err != ErrNonFiniteUnits {
+				t.Fatalf("err: got %v (out=%s, gain=%v), want ErrNonFiniteUnits", err, out, gain)
+			}
+			if out == BNGMeetsThreshold {
+				t.Fatalf("non-finite input must NOT classify as the non-escaping BNG_MEETS_THRESHOLD")
+			}
+		})
+	}
+}
+
 // TestBNGOutcome_ExactStringValues — wire format pin.
 func TestBNGOutcome_ExactStringValues(t *testing.T) {
 	if string(BNGMeetsThreshold) != "BNG_MEETS_THRESHOLD" ||
