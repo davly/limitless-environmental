@@ -14,6 +14,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"math/big"
 	"os"
 	"time"
 
@@ -167,9 +168,12 @@ func runPermit(args []string) {
 func runBNG(args []string) {
 	fs := flag.NewFlagSet("bng classify", flag.ExitOnError)
 	site := fs.String("site", "", "local-planning-authority site reference")
-	pre := fs.Float64("pre", 0, "pre-development biodiversity units")
-	post := fs.Float64("post", 0, "post-development biodiversity units")
-	credits := fs.Float64("credits", 0, "statutory biodiversity credits purchased")
+	// Biodiversity-units inputs are DEFRA Metric v4.0 decimals; parse them as EXACT
+	// rationals (not float64) so the +10% statutory boundary cannot flip on IEEE-754
+	// rounding at ingestion (wave-2 ENV-4) or in the gate (ENV-1).
+	pre := fs.String("pre", "0", "pre-development biodiversity units (decimal)")
+	post := fs.String("post", "0", "post-development biodiversity units (decimal)")
+	credits := fs.String("credits", "0", "statutory biodiversity credits purchased (decimal)")
 
 	if len(args) < 1 || args[0] != "classify" {
 		fmt.Fprintln(os.Stderr, "usage: environmental bng classify [flags]")
@@ -177,20 +181,21 @@ func runBNG(args []string) {
 	}
 	_ = fs.Parse(args[1:])
 
-	ctx := biodiversity_gate.BNGContext{
-		SiteReference:             *site,
-		PreDevelopmentUnits:       *pre,
-		PostDevelopmentUnits:      *post,
-		StatutoryCreditsPurchased: *credits,
+	preR, okPre := new(big.Rat).SetString(*pre)
+	postR, okPost := new(big.Rat).SetString(*post)
+	creditsR, okCredits := new(big.Rat).SetString(*credits)
+	if !okPre || !okPost || !okCredits {
+		fmt.Fprintln(os.Stderr, "bng classify: --pre/--post/--credits must be finite decimal numbers")
+		os.Exit(2)
 	}
 
-	out, gain, err := biodiversity_gate.Classify(ctx)
+	out, gain, err := biodiversity_gate.ClassifyExact(*site, preR, postR, creditsR)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "bng classify: %v\n", err)
 		os.Exit(1)
 	}
 
-	fmt.Printf("site %s: %s (gain%%=%.2f)\n", ctx.SiteReference, out, gain)
+	fmt.Printf("site %s: %s (gain%%=%s)\n", *site, out, gain.FloatString(2))
 	if out.IsRegulatoryEscape() {
 		fmt.Println(legal.ENV_REGULATED_DECISION_ESCAPE)
 	}

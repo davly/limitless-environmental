@@ -19,6 +19,7 @@ package biodiversity_gate
 import (
 	"errors"
 	"math"
+	"math/big"
 )
 
 // StatutoryMinimumGainPercent is the Environment Act 2021 Schedule 14
@@ -144,4 +145,54 @@ func Classify(ctx BNGContext) (BNGOutcome, float64, error) {
 // percentGain returns (post - pre) / pre * 100. pre must be > 0.
 func percentGain(post, pre float64) float64 {
 	return (post - pre) / pre * 100.0
+}
+
+// ClassifyExact is the EXACT-arithmetic counterpart of Classify for the +10% BNG gate.
+// It decides the statutory verdict over exact rationals so the +10% boundary can never
+// flip on IEEE-754 rounding: pre=3.0, post=3.3 is EXACTLY +10% (MEETS), but the float
+// path computes (3.3-3.0)/3.0*100 = 9.9999999999999929 < 10 and wrongly returns
+// BNG_BELOW_THRESHOLD (Environment Act 2021 Sch.14, wave-2 ENV-1/ENV-4). Callers should
+// parse the DEFRA Metric v4.0 decimal inputs directly to *big.Rat (new(big.Rat).SetString
+// gives an EXACT value for any finite decimal, e.g. "3.3" -> 33/10) rather than through
+// float64, which closes the ingestion seam. The returned gain is the exact gain %.
+func ClassifyExact(siteRef string, pre, post, credits *big.Rat) (BNGOutcome, *big.Rat, error) {
+	if siteRef == "" {
+		return "", nil, ErrEmptySiteReference
+	}
+	if pre == nil || post == nil || credits == nil {
+		return "", nil, ErrNonFiniteUnits
+	}
+	if pre.Sign() < 0 || post.Sign() < 0 || credits.Sign() < 0 {
+		return "", nil, ErrNegativeUnits
+	}
+	if pre.Sign() == 0 {
+		return "", nil, ErrZeroPreUnits
+	}
+
+	gainOnPost := percentGainRat(post, pre)
+
+	// Net loss: post alone below pre AND no credits to compensate.
+	if post.Cmp(pre) < 0 && credits.Sign() == 0 {
+		return BNGNetLoss, gainOnPost, nil
+	}
+
+	total := new(big.Rat).Add(post, credits)
+	gainTotal := percentGainRat(total, pre)
+	ten := big.NewRat(int64(StatutoryMinimumGainPercent), 1)
+
+	if gainTotal.Cmp(ten) < 0 {
+		return BNGBelowThreshold, gainTotal, nil
+	}
+	// Meets threshold only via credits — flag for transparency.
+	if gainOnPost.Cmp(ten) < 0 && credits.Sign() > 0 {
+		return BNGCreditsRequired, gainTotal, nil
+	}
+	return BNGMeetsThreshold, gainTotal, nil
+}
+
+// percentGainRat returns the exact (x - pre) / pre * 100. pre must be non-zero.
+func percentGainRat(x, pre *big.Rat) *big.Rat {
+	g := new(big.Rat).Sub(x, pre)
+	g.Quo(g, pre)
+	return g.Mul(g, big.NewRat(100, 1))
 }
